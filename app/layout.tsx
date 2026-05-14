@@ -37,7 +37,19 @@ export default function RootLayout({
       <head>
         <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <footer
+          style={{
+            textAlign: "center",
+            padding: "16px 12px",
+            fontSize: 12,
+            color: "#9ca3af",
+          }}
+        >
+          © {new Date().getFullYear()} Runzhuo Gan. All rights reserved.
+        </footer>
+      </body>
     </html>
   );
 }
