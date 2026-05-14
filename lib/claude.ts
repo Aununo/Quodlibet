@@ -95,10 +95,11 @@ export function streamTextResponse(
       const runStream = async (
         content: string | ContentBlockParam[],
         tokenBudget = maxTokens,
-        retriedForThinking = false,
+        retriedForTruncation = false,
       ) => {
         let fullText = "";
         let thinkingChars = 0;
+        let stopReason: string | null = null;
         const seenTypes = new Set<string>();
         const t0 = Date.now();
         let firstByteAt: number | null = null;
@@ -144,25 +145,44 @@ export function streamTextResponse(
             thinkingChars += chunk.length;
             send("thinking", { chars: thinkingChars });
           }
+          if (
+            event.type === "message_delta" &&
+            "delta" in event &&
+            typeof (event.delta as { stop_reason?: string }).stop_reason === "string"
+          ) {
+            stopReason = (event.delta as { stop_reason: string }).stop_reason;
+          }
         }
-        console.log(`[stream] done +${Date.now() - t0}ms textLen=${fullText.length} types=${Array.from(seenTypes).join(",")}`);
+        console.log(`[stream] done +${Date.now() - t0}ms textLen=${fullText.length} stop=${stopReason} types=${Array.from(seenTypes).join(",")}`);
 
         const cleaned = cleanJSONText(fullText);
-        if (!cleaned) {
-          if (seenTypes.has("thinking") && !retriedForThinking) {
+        const truncated = stopReason === "max_tokens";
+
+        if (!cleaned || truncated) {
+          if (!retriedForTruncation && (truncated || seenTypes.has("thinking"))) {
+            send("notice", {
+              text: truncated
+                ? `上次输出在 max_tokens 处被截断，正在用更大预算重试...`
+                : `上游只返回思考内容，正在用更大预算重试...`,
+            });
             await runStream(
               content,
-              Math.max(tokenBudget * 2, 3600),
+              Math.max(tokenBudget * 2, 6000),
               true,
             );
             return;
           }
-          const types = Array.from(seenTypes).join(", ") || "empty";
-          const hint = seenTypes.has("thinking")
-            ? "；上游只返回了思考内容，可能是 max_tokens 不足或 relay 开启了 thinking"
-            : "";
+          if (!cleaned) {
+            const types = Array.from(seenTypes).join(", ") || "empty";
+            const hint = seenTypes.has("thinking")
+              ? "；上游只返回了思考内容，可能是 max_tokens 不足或 relay 开启了 thinking"
+              : "";
+            throw new Error(
+              `Claude 没有返回文本内容（content types: ${types}${hint}）`,
+            );
+          }
           throw new Error(
-            `Claude 没有返回文本内容（content types: ${types}${hint}）`,
+            `Claude 输出被截断（stop_reason=${stopReason}），重试后仍未完成。请减少题量或调大模型预算。`,
           );
         }
 

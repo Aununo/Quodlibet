@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       client,
       QUESTION_GEN_SYSTEM,
       textOnlyContent,
-      3600,
+      8000,
       model || undefined,
       [
         {
